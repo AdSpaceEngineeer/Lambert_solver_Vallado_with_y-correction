@@ -1,0 +1,126 @@
+#import packages
+import numpy as np
+import math
+
+#Stumpff functions
+def func_C(z):
+    if z>0:
+        c = (1-math.cos(np.sqrt(z)))/z
+    elif z < 0 : 
+        c = (math.cosh(np.sqrt(-z)) - 1)/(-z)
+    else: 
+        c = 1/2
+    return c
+
+def func_S(z):
+    if z>0: 
+        s = (np.sqrt(z) - math.sin(np.sqrt(z)))/ (np.sqrt(z))**3
+    elif z<0 : 
+        s = (math.sinh(np.sqrt(-z)) - np.sqrt(-z))/ (np.sqrt(-z))**3
+    else: 
+        s = 1/6
+    return s
+
+
+#calculate theta for prograde and retrograde orbits from states of launch and target bodies
+def func_theta_pro_and_retro(state_0, state_1):
+    
+    r1_vec = np.array(state_0[:3])
+    
+    r2_vec = np.array(state_1[:3])
+    
+    r1 = np.sqrt(sum(n**2 for n in r1_vec))
+    #print(r1, "km is r1")  
+
+    r2 = np.sqrt(sum(n**2 for n in r2_vec))
+    #print(r2, "km is r2")
+
+    h_z = np.cross(r1_vec, r2_vec)[2]
+    #print(h_z, " is the z component of r1_vec x r2_vec")
+
+    if h_z < 0:
+        theta_pro = 2*math.pi - math.acos(np.dot(r1_vec, r2_vec)/(r1*r2))
+    else:
+        theta_pro = math.acos(np.dot(r1_vec, r2_vec)/(r1*r2))
+
+    #print(theta_pro, "radians is the angle between r1 and r2 for prograde orbit")
+
+    theta_retro = 2*math.pi - theta_pro
+    #print(theta_retro, "radians is the angle between r1 and r2 for retrograde orbit")
+    
+    return (theta_pro, theta_retro, r1, r2)
+
+#Lambert solver using Vallado's method but with a simplified check for y>0 when theta<pi
+def func_Lambert_vdep_varr_Vallado_ycorrection(state_0, state_1, theta, tol, tof, mu):
+    
+    r1_vec = np.array(state_0[0:3])
+    #print(r1_vec)
+    
+    r2_vec = np.array(state_1[0:3])
+    #print(r2_vec)
+    
+    r1 = np.sqrt(sum(n**2 for n in r1_vec))
+    #print(r1)
+
+    r2 = np.sqrt(sum(n**2 for n in r2_vec))
+    #print(r2)
+    
+    A = math.sin(theta)*np.sqrt(r1*r2/(1-math.cos(theta)))
+    #print(A)
+    
+    if theta>=math.pi:  ##
+        z_hi = 4*math.pi**2
+        z_lo = -4*math.pi**2
+        n = 0
+        zi=0
+        while (abs(z_hi-z_lo) > tol) and (n <= 100):
+            n+=1
+            #zi = (z_hi + z_lo)/2
+            C = func_C(zi)
+            S = func_S(zi)
+            y = r1 + r2 + A*(zi*S-1)/np.sqrt(C) 
+            #print(y)
+            f = S*(y/C)**(3/2) + A*np.sqrt(y) - tof*np.sqrt(mu)
+            #print(f)
+            if f < 0 :
+                z_lo = zi
+            else :
+                z_hi = zi
+            zi = (z_hi + z_lo)/2
+    else:
+        y=-10
+        z_lo=-10
+        while (y<0):
+            C = func_C(z_lo)
+            S = func_S(z_lo)
+            y = r1 + r2 + A*(z_lo*S-1)/np.sqrt(C)
+            z_lo=z_lo+0.5
+        z_hi = 4*math.pi**2
+        n = 0
+        zi = (z_hi + z_lo)/2
+        while (abs(z_hi-z_lo) > tol) and (n <= 100):
+            n+=1
+            C = func_C(zi)
+            S = func_S(zi)
+            y = r1 + r2 + A*(zi*S-1)/np.sqrt(C) 
+            f = S*(y/C)**(3/2) + A*np.sqrt(y) - tof*np.sqrt(mu)
+            if f < 0 :
+                z_lo = zi
+            else :
+                z_hi = zi
+            zi = (z_hi + z_lo)/2
+    
+    z = zi
+    C = func_C(z)
+    S = func_S(z)
+    y = r1 + r2 + A*(z*S-1)/np.sqrt(C) 
+
+    f = 1 - y/r1
+    g = A*np.sqrt(y/mu)
+    g_dot = 1 - y/r2
+    #f_dot = (f*g_dot-1)/g
+    
+    v_dep_vec = (1/g)*(r2_vec-f*r1_vec)
+    v_arr_vec = (1/g)*(g_dot*r2_vec - r1_vec)
+    
+    return (v_dep_vec, v_arr_vec)
